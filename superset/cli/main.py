@@ -18,7 +18,7 @@
 import importlib
 import logging
 import pkgutil
-from typing import Any
+from typing import Any, Dict, Set
 
 import click
 from colorama import Fore, Style
@@ -44,14 +44,28 @@ def superset() -> None:
         return {"app": app, "db": db}
 
 
-# add sub-commands
-for load, module_name, is_pkg in pkgutil.walk_packages(
-    cli.__path__, cli.__name__ + "."
-):
-    module = importlib.import_module(module_name)
+# add sub-commands from ``superset.cli``
+seen: Set[click.core.Command] = set()
+modules = [
+    importlib.import_module(module_name)
+    for load, module_name, is_pkg in pkgutil.walk_packages(
+        cli.__path__, cli.__name__ + "."  # type: ignore
+    )
+]
+
+# first find all groups
+for module in modules:
     for attribute in module.__dict__.values():
-        if isinstance(attribute, (click.core.Command, click.core.Group)):
+        if isinstance(attribute, click.core.Group):
             superset.add_command(attribute)
+            seen.update(attribute.commands.values())
+
+# then add orphan commands
+for module in modules:
+    for attribute in module.__dict__.values():
+        if isinstance(attribute, click.core.Command) and attribute not in seen:
+            superset.add_command(attribute)
+            seen.add(attribute)
 
             if isinstance(attribute, click.core.Group):
                 break
